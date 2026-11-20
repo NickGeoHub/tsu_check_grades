@@ -1,0 +1,12 @@
+# secrets and local state: never commit these
+config.json
+state.json
+log.txt
+debug_*.json
+debug_*.html
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
