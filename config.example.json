@@ -1,0 +1,20 @@
+{
+  "base_url": "https://uni.tsu.ge",
+  "login_path": "/api/Auth/Login",
+  "login_payload": {
+    "username": "{user}",
+    "password": "{pass}"
+  },
+
+  "grades_path": "/api/Card/StudentProfile",
+  "grades_method": "POST",
+  "grades_body": 1,
+  "ignore_keys": [],
+
+  "_comment1": "you may no need those 2 lines below.",
+  "username": "your_username",
+  "password": "your_password",
+
+  "telegram_token": "123456:ABC-your-bot-token",
+  "telegram_chat_id": "your_chat_id"
+}
