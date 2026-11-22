@@ -4,6 +4,7 @@ state.json
 log.txt
 debug_*.json
 debug_*.html
+test.py
 
 # python
 __pycache__/

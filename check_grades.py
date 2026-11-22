@@ -57,15 +57,18 @@ def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False))
 
 
-def notify(cfg, text):
+def notify(cfg, text: str, recipients):
     token = cfg["telegram_token"]
-    chats = cfg["telegram_chat_id"]
-    chats = chats if isinstance(chats, list) else [chats]
-    if not token or not any(chats):
-        log("Telegram not configured; message would be:\n" + text)
+    recipients = recipients if isinstance(recipients, list) else [recipients]
+    if not token:
+        log("Telegram not configured; can not find token!")
+        return False
+    
+    if not any(recipients):
+        log("No recipients specified. message would be:\n" + text)
         return False
     ok = False
-    for chat in chats:
+    for chat in recipients:
         r = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             data={"chat_id": chat, "text": text[:4000], "disable_web_page_preview": True},
@@ -180,6 +183,9 @@ def get_lines(cfg):
 
 def cmd_check(cfg):
     state = load_state()
+    users_list = cfg["telegram_chat_id_users"]
+    classmates_list = cfg["telegram_chat_id_classmates"]
+
     try:
         lines, _ = get_lines(cfg)
     except (PortalError, requests.RequestException) as e:
@@ -188,36 +194,47 @@ def cmd_check(cfg):
         save_state(state)
         log(f"ERROR ({fails} in a row): {e}")
         if fails == 3:
-            notify(cfg, f"⚠️ Grade watcher failing 3 times in a row:\n{e}")
+            # that is kinda funny. if this fails because of internet connection, it cant even run notify()
+            notify(cfg, f"⚠️ Grade watcher failing 3 times in a row:\n{e}", users_list)
         sys.exit(1)
 
     state["consecutive_failures"] = 0
     digest = hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
+    # program (thinks) it just started
     if "digest" not in state:
         state.update(digest=digest, lines=lines)
         save_state(state)
         log(f"Baseline saved ({len(lines)} values).")
-        notify(cfg, f"✅ Grade watcher is running. Baseline saved ({len(lines)} values).")
+        notify(cfg, f"Grade watcher is running. Baseline saved ({len(lines)} values).", users_list)
+        # i think notifying classmates when program starts is not necessary. TODO - delete it.
+        # notify(cfg, f"Grade watcher is running.", classmates_list)
         return
 
+    # araferi shecvlila
     if digest == state["digest"]:
         save_state(state)
         log("No change.")
         return
 
+    # ragac sheicvala
     old = state["lines"]
     added = [l for l in lines if l not in set(old)]
     removed = [l for l in old if l not in set(lines)]
-    msg = "📚 Grades changed!\n"
+    msg_classmates = "Something MAYBE changed. Check your uni profile."
+    msg_users = "Something changed!\n"
     if added:
-        msg += "\nNew / changed:\n" + "\n".join("+ " + l for l in added[:30])
+        msg_users += "\nNew / changed:\n" + "\n".join("+ " + l for l in added[:30])
     if removed:
-        msg += "\n\nGone / old value:\n" + "\n".join("- " + l for l in removed[:15])
-    if notify(cfg, msg):
+        msg_users += "\n\nGone / old value:\n" + "\n".join("- " + l for l in removed[:15])
+
+    if notify(cfg, msg_users, users_list):
         state.update(digest=digest, lines=lines)  # advance baseline only if delivered
-        log("Change detected, notified.")
+        log("Change detected, notified all users in user_list.")
     save_state(state)
+    if len(classmates_list) != 0:
+        if notify(cfg, msg_classmates, classmates_list):
+            log("Change detected, notified all classsmates in classmates_list.")
 
 
 def short(v, n=60):
@@ -281,10 +298,11 @@ def cmd_chat_id(cfg):
                  "then run this again.")
     for cid, name in chats.items():
         print(f"chat_id: {cid}   ({name})")
-    print('\nPut the number in config.json as "telegram_chat_id".')
+    print('\nPut the number in config.json as "telegram_chat_id_users" or "telegram_chat_id_classmates".')
 
 
 def main():
+    # TODO add return values so we know what exactly failed. it will be eazy to have different return values in each function so if only 1 notify() fails from 2, we will know.
     cmd = sys.argv[1] if len(sys.argv) > 1 else "check"
     if cmd == "reset":
         STATE_PATH.unlink(missing_ok=True)
@@ -292,7 +310,11 @@ def main():
         return
     cfg = load_config()
     if cmd == "test-telegram":
-        print("sent" if notify(cfg, "Test message from grade watcher ✅") else "failed")
+        users_list = cfg["telegram_chat_id_users"]
+        classmates_list = cfg["telegram_chat_id_classmates"]
+        users_list = users_list if isinstance(users_list, list) else [users_list]
+        classmates_list = classmates_list if isinstance(classmates_list, list) else [classmates_list]
+        print("sent" if notify(cfg, "Test message from grade watcher", users_list+classmates_list) else "failed")
     elif cmd == "chat-id":
         cmd_chat_id(cfg)
     elif cmd == "inspect":

@@ -16,5 +16,6 @@
   "password": "your_password",
 
   "telegram_token": "123456:ABC-your-bot-token",
-  "telegram_chat_id": "your_chat_id"
+  "telegram_chat_id_users": ["your_chat_id"],
+  "telegram_chat_id_classmates": []
 }
