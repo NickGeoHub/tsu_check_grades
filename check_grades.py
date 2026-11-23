@@ -67,7 +67,7 @@ def notify(cfg, text: str, recipients):
     if not token:
         log("Telegram not configured; can not find token!")
         return False
-    
+
     if not any(recipients):
         log("No recipients specified. message would be:\n" + text)
         return False
@@ -378,7 +378,9 @@ def cmd_chat_id(cfg):
 
 
 def main():
-    # TODO add return values so we know what exactly failed. it will be eazy to have different return values in each function so if only 1 notify() fails from 2, we will know.
+    # TODO add return values so we know what exactly failed.
+    # it will be eazy to have different return values in each function,
+    # so if only 1 notify() fails from 2, we will know.
     cmd = sys.argv[1] if len(sys.argv) > 1 else "check"
     if cmd == "reset":
         STATE_PATH.unlink(missing_ok=True)
