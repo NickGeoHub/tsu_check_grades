@@ -34,6 +34,10 @@ class PortalError(Exception):
     pass
 
 
+class SnapshotError(Exception):
+    pass
+
+
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
@@ -179,9 +183,79 @@ def get_lines(cfg):
     return flatten(data, set(cfg.get("ignore_keys", []))), data
 
 
+def parse_lines(lines: list[str]) -> dict:
+    if not lines:
+        log("[WARNING] Snapshot is empty")
+        raise SnapshotError("Snapshot is empty")
+    profiles = {}
+
+    for line in lines:
+        match = re.match(
+            r"studentProfile\[(\d+)\]\.(\w+)\s*=\s*(.*)",
+            line
+        )
+
+        if not match:
+            continue
+
+        index, field, value = match.groups()
+        profiles.setdefault(index, {})[field] = value.strip()
+
+    subjects = {}
+
+    for profile in profiles.values():
+        subject_id = profile.get("subjectId")
+
+        if subject_id and subject_id != "None":
+            subjects[subject_id] = profile
+
+    return subjects
+
+
+def analyze_changes(old_lines: list[str], new_lines: list[str]) -> str:
+    """Generate a Telegram notification about grade changes."""
+
+    old_subjects = parse_lines(old_lines)
+    new_subjects = parse_lines(new_lines)
+
+    messages = []
+
+    # Only compare subjects that existed in both snapshots.
+    common_ids = old_subjects.keys() & new_subjects.keys()
+
+    for subject_id in common_ids:
+        old = old_subjects[subject_id]
+        new = new_subjects[subject_id]
+
+        changed_fields = []
+
+        for field in ("sumMark", "gradeSimbole"):
+            old_value = old.get(field)
+            new_value = new.get(field)
+
+            if old_value != new_value:
+                changed_fields.append(
+                    f"{field}: {old_value} -> {new_value}"
+                )
+
+        if changed_fields:
+            subject_name = new.get(
+                "subjectName",
+                f"Unknown subject ({subject_id})"
+            )
+
+            messages.append(
+                f"Grade changed in subject: {subject_name}\n"
+                + "\n".join(changed_fields)
+            )
+
+    return "\n".join(messages)
+
+
 # ---------- Commands ----------
 
 def cmd_check(cfg):
+    # the most used command
     state = load_state()
     users_list = cfg["telegram_chat_id_users"]
     classmates_list = cfg["telegram_chat_id_classmates"]
@@ -195,7 +269,7 @@ def cmd_check(cfg):
         log(f"ERROR ({fails} in a row): {e}")
         if fails == 3:
             # that is kinda funny. if this fails because of internet connection, it cant even run notify()
-            notify(cfg, f"⚠️ Grade watcher failing 3 times in a row:\n{e}", users_list)
+            notify(cfg, f"Grade watcher failing 3 times in a row:\n{e}", users_list)
         sys.exit(1)
 
     state["consecutive_failures"] = 0
@@ -219,14 +293,16 @@ def cmd_check(cfg):
 
     # ragac sheicvala
     old = state["lines"]
-    added = [l for l in lines if l not in set(old)]
-    removed = [l for l in old if l not in set(lines)]
-    msg_classmates = "Something MAYBE changed. Check your uni profile."
+
     msg_users = "Something changed!\n"
-    if added:
-        msg_users += "\nNew / changed:\n" + "\n".join("+ " + l for l in added[:30])
-    if removed:
-        msg_users += "\n\nGone / old value:\n" + "\n".join("- " + l for l in removed[:15])
+
+    try:
+        msg_users += analyze_changes(old, lines)
+    except SnapshotError as e:
+        log(f"[SNAPSHOT ERROR] {e}")
+        msg_users += f"[SNAPSHOT ERROR] {e}, please restart program or fix it.\nif nothing helps, delete state.json file"
+
+    msg_classmates = "Something MAYBE changed. Check your uni profile."
 
     if notify(cfg, msg_users, users_list):
         state.update(digest=digest, lines=lines)  # advance baseline only if delivered
